@@ -1,4 +1,4 @@
- // SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
 contract IoTDeviceMeter {
@@ -12,6 +12,7 @@ contract IoTDeviceMeter {
     }
 
     mapping(address => UsageRecord) public deviceUsage;
+    mapping(address => bool) public isDeviceActive;
 
     event UsageRecorded(address indexed device, uint256 amount, uint256 newTotal);
     event UsageReset(address indexed device);
@@ -21,6 +22,8 @@ contract IoTDeviceMeter {
     event LimitSet(address indexed device, uint256 limit);
     event LimitExceeded(address indexed device, uint256 usage, uint256 limit);
     event Paused(bool isPaused);
+    event DeviceRegistered(address indexed device);
+    event DeviceUnregistered(address indexed device);
 
     modifier onlyOwner() {
         require(msg.sender == owner, "Not authorized");
@@ -38,7 +41,7 @@ contract IoTDeviceMeter {
 
     // === Core Functions ===
 
-    function recordUsage(address device, uint256 usage) external onlyOwner onlyWhenNotPaused {
+    function recordUsage(address device, uint256 usage) public onlyOwner onlyWhenNotPaused {
         deviceUsage[device].totalUsage += usage;
         deviceUsage[device].lastUpdated = block.timestamp;
         emit UsageRecorded(device, usage, deviceUsage[device].totalUsage);
@@ -54,7 +57,7 @@ contract IoTDeviceMeter {
         return (record.totalUsage, record.lastUpdated, record.usageLimit);
     }
 
-    function resetUsage(address device) external onlyOwner {
+    function resetUsage(address device) public onlyOwner {
         deviceUsage[device].totalUsage = 0;
         deviceUsage[device].lastUpdated = block.timestamp;
         emit UsageReset(device);
@@ -62,6 +65,7 @@ contract IoTDeviceMeter {
 
     function removeDevice(address device) external onlyOwner {
         delete deviceUsage[device];
+        delete isDeviceActive[device];
         emit DeviceRemoved(device);
     }
 
@@ -88,6 +92,40 @@ contract IoTDeviceMeter {
         emit Paused(isPaused);
     }
 
+    function pause() external onlyOwner {
+        isPaused = true;
+        emit Paused(true);
+    }
+
+    function resume() external onlyOwner {
+        isPaused = false;
+        emit Paused(false);
+    }
+
+    // === Device Management ===
+
+    function registerDevice(address device) external onlyOwner {
+        require(device != address(0), "Invalid device address");
+        require(deviceUsage[device].lastUpdated == 0, "Device already registered");
+
+        deviceUsage[device].lastUpdated = block.timestamp;
+        isDeviceActive[device] = true;
+        emit DeviceRegistered(device);
+    }
+
+    function unregisterDevice(address device) external onlyOwner {
+        require(isDeviceActive[device], "Device not active");
+        isDeviceActive[device] = false;
+        emit DeviceUnregistered(device);
+    }
+
+    function registerDeviceWithStatus(address device) external onlyOwner {
+        require(device != address(0), "Invalid device");
+        isDeviceActive[device] = true;
+        deviceUsage[device].lastUpdated = block.timestamp;
+        emit DeviceRegistered(device);
+    }
+
     // === Usage Limits ===
 
     function setUsageLimit(address device, uint256 limit) external onlyOwner {
@@ -97,6 +135,15 @@ contract IoTDeviceMeter {
 
     function getUsageLimit(address device) external view returns (uint256) {
         return deviceUsage[device].usageLimit;
+    }
+
+    function setUsageAndLimit(address device, uint256 usage, uint256 limit) external onlyOwner {
+        deviceUsage[device].totalUsage = usage;
+        deviceUsage[device].usageLimit = limit;
+        deviceUsage[device].lastUpdated = block.timestamp;
+
+        emit UsageSet(device, usage);
+        emit LimitSet(device, limit);
     }
 
     // === Batch Functions ===
